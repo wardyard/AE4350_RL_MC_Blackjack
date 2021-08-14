@@ -269,8 +269,6 @@ class BlackjackEnv(gym.Env):
         #initialize and calculate reward for this step
         reward = 0
         
-        # TODO: fix wanneer self.done = False, dus als player hit, dealer doet turn
-        #en dan verder evalueren. Nu wordt er geen reward gegeven voor hit actie 
         
         if self.done:   #so stand or player value above 21 
             #calculate reward/loss 
@@ -428,7 +426,7 @@ epsilon = 1
     
 #○epsilon_decay denotes by which factor epsilon is decayed. With decreasing
 #epsilon over the episodes, the agent starts to exploit more than explore.
-epsilon_decay = 1
+epsilon_decay = 0.99999
 
     
 #epsilon cannot go below a certain bound in order to still guarantee some
@@ -439,7 +437,7 @@ epsilon_min = 0.95
 #reward (thus in the same episode) contribute to this reward being received.
 #If the discount rate is 1, no attention is given to the previous actions, 
 #except for the last action which invoked the reward
-discount_rate = 0.71
+discount_rate = 0.8
   
 
 ###############################################################################
@@ -485,7 +483,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         state = next_state 
 
 
-    #update the Q_table and policy map
+    #update the Q_table
     
     episode_index = 0
     for episode in episode_results: 
@@ -509,19 +507,35 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         #Q_table[state[0]][state[1]][action] = current_Q + learning_rate*tot_reward_episode
         Q_table[state[0]][state[1]][action] = current_Q + learning_rate*(tot_reward_episode - current_Q)
         
-        #update policy map (probabilities) via discounted epsilon 
-        epsilon = max(epsilon*epsilon_decay, epsilon_min)
-        policy_map[state[0]][state[1]][action] += (1-epsilon)
+        # #update policy map (probabilities) via discounted epsilon 
+        # epsilon = max(epsilon*epsilon_decay, epsilon_min)
+        # policy_map[state[0]][state[1]][action] += (1-epsilon)
         
-        policy_map[state[0]][state[1]][action] = min(1, policy_map[state[0]][state[1]][action])
+        # policy_map[state[0]][state[1]][action] = min(1, policy_map[state[0]][state[1]][action])
         
         
-        if action == 0: 
-            policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][action]
-        else: 
-            policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][action]
+        # if action == 0: 
+        #     policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][action]
+        # else: 
+        #     policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][action]
         
         episode_index += 1
+      
+    # update the policy map (probabilities of certain action being taken)    
+      
+    for state, action, reward in episode_results: 
+        Q_values = Q_table[state[0]][state[1]]
+        best_action_updated = np.argmax(Q_values)
+        
+        epsilon = max(epsilon*epsilon_decay, epsilon_min)
+        policy_map[state[0]][state[1]][best_action_updated] += (1-epsilon)
+        policy_map[state[0]][state[1]][best_action_updated] = min(1, policy_map[state[0]][state[1]][best_action_updated])
+        
+        if best_action_updated == 0: 
+            policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][best_action_updated]
+        else: 
+            policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][best_action_updated]
+            
     return Q_table, policy_map, epsilon, episode_reward
         
     
@@ -532,7 +546,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
 env = BlackjackEnv()
 
 total_reward = 0
-NUM_EPISODES = 10000000
+NUM_EPISODES = 500000
 
 visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
 
@@ -575,21 +589,20 @@ for k in range(best_policy_binary.shape[0]):
 ###############################################################################
 # Test the optimal policy 
 ###############################################################################
-
-test_reward = 0
-
-for i in range(NUM_EPISODES): 
-    state, reward, env.done, info = env.reset()
-    test_reward += reward 
-    while env.done == False: 
-        action = best_policy_binary[state[0]][state[1]]
-        
-        next_state, reward, env.done, info = env.step(action)
-        
-        test_reward += reward 
+def test(): 
+    test_reward = 0
     
-
-
-
+    for i in range(NUM_EPISODES): 
+        state, reward, env.done, info = env.reset()
+        test_reward += reward 
+        while env.done == False: 
+            action = best_policy_binary[state[0]][state[1]]
+            
+            next_state, reward, env.done, info = env.step(action)
+            
+            test_reward += reward 
+            state = next_state
+            
+    print('Average test reward: ' + str(test_reward/NUM_EPISODES))
 
 
