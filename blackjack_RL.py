@@ -160,8 +160,8 @@ def player_eval(player_hand):
             #using_ace_eleven: value of dealer's hand when using a value of 11
             #for aces
             using_ace_eleven = using_ace_one + 10 
-            if using_ace_eleven <= 4: 
-                print('ace eleven: ' + str(using_ace_eleven))
+            # if using_ace_eleven <= 4: 
+            #     print('ace eleven: ' + str(using_ace_eleven))
             
             if using_ace_eleven > 21: 
                 return using_ace_one   #dealer would be bust if using 11 for an ace value
@@ -176,18 +176,18 @@ def player_eval(player_hand):
                 
             num_aces += 1 
         
-        if using_ace_one <= 4: 
-            print('ace one: ' + str(using_ace_one))
-            print(player_hand)
+        # if using_ace_one <= 4: 
+        #     print('ace one: ' + str(using_ace_one))
+        #     print(player_hand)
         return using_ace_one
     
     else: 
-        if using_ace_one <= 4: 
-            print('ace one: ' + str(using_ace_one))
-            hand_str = ''
-            for card in player_hand: 
-                hand_str = hand_str + card.__str__()
-            print(hand_str)
+        # if using_ace_one <= 4: 
+        #     print('ace one: ' + str(using_ace_one))
+        #     hand_str = ''
+        #     for card in player_hand: 
+        #         hand_str = hand_str + card.__str__()
+        #     print(hand_str)
         return using_ace_one
 
 
@@ -212,7 +212,7 @@ def dealer_turn(dealer_hand, deck):
 ##############################################################################
 
 STARTING_CAPITAL = 1000
-AMOUNT_DECKS = 6
+AMOUNT_DECKS = 2
 
 class BlackjackEnv(gym.Env): 
     metadata = {'render.modes': ['human']}
@@ -258,6 +258,7 @@ class BlackjackEnv(gym.Env):
         
     def step(self, action): 
         self._take_action(action)
+        #print('action: ' + str(action))
         
         #end the game if it's done => when player hand is >= 21 or player stands
         if action ==1 or self.player_value >= 21: 
@@ -268,26 +269,38 @@ class BlackjackEnv(gym.Env):
         #initialize and calculate reward for this step
         reward = 0
         
+        # TODO: fix wanneer self.done = False, dus als player hit, dealer doet turn
+        #en dan verder evalueren. Nu wordt er geen reward gegeven voor hit actie 
+        
         if self.done:   #so stand or player value above 21 
             #calculate reward/loss 
-            if self.player_value == 21:     #blackjack, automatic win
+            if self.player_value == 21 and self.dealer_value != 21:     #blackjack, automatic win
                 reward = self.reward_options["win"]
             elif self.player_value > 21:    #burnt, automatic lose
                 reward = self.reward_options["lose"]
-            else:                           #player stands
+            else: 
+                #player stands
                 #now it's not clear whether the player has won or lost. For this
                 #the dealer has to play first in order to be able to compare their hands
                 
-                dealer_value, self.dealer_hand, self.deck = dealer_turn(self.dealer_hand, self.deck)
-                
-                if dealer_value < self.player_value or dealer_value > 21: 
-                    reward = self.reward_options["win"]
-                elif dealer_value == 21 or dealer_value > self.player_value : ## TODO: shouldn't the dealer's turn be done first to check whether he has blackjack? 
-                                          # this only gets checked when the player stands. Both people could have blackjack
+                #first, check whether the dealer had Blackjack all along 
+                if self.dealer_value == 21: 
                     reward = self.reward_options["lose"]
                 else: 
-                    reward = self.reward_options["tie"]
+                    self.dealer_value, self.dealer_hand, self.deck = dealer_turn(self.dealer_hand, self.deck)
                     
+                    if (self.dealer_value < self.player_value and self.player_value < 22) or self.dealer_value > 21: 
+                        reward = self.reward_options["win"]
+                    elif self.dealer_value == 21 or (self.dealer_value > self.player_value and self.dealer_value < 22) : 
+                                              # this only gets checked when the player stands. Both people could have blackjack
+                        reward = self.reward_options["lose"]
+                    elif self.player_value == self.dealer_value: 
+                        reward = self.reward_options["tie"]
+        '''
+        added woensdag om optimal_policy van altijd hitten te fixen
+        '''
+        
+        #print('Reward: ' + str(reward))
         self.capital += reward
         
         #determine the next state to return 
@@ -313,7 +326,8 @@ class BlackjackEnv(gym.Env):
     #upcard is shown/dealt. The starting capital of the player is reset to 
     #STARTING_CAPITAL. The function returns an initial state
     def reset(self):
-        self.deck.cards += self.player_hand + self.dealer_hand
+        self.deck.cards += self.player_hand
+        self.deck.cards += self.dealer_hand
         self.deck.shuffle()
         
         self.done = False 
@@ -326,17 +340,32 @@ class BlackjackEnv(gym.Env):
         self.dealer_hand = [self.deck.deal(), self.deck.deal()]
         
         self.player_value = player_eval(self.player_hand)
-        obs_index_player = self.player_value - 4    #convert [2-20] range to [0-18] range
+        state_index_player = self.player_value - 4    #convert [4-30] range to [0-26] range
         
         self.upcard = self.dealer_hand[0]
-        obs_index_dealer = dealer_eval([self.upcard]) - 2 #convert [1-10] to [0-9]
+        self.dealer_value = dealer_eval(self.dealer_hand)
+        state_index_dealer = dealer_eval([self.upcard]) - 2 #convert [2-11] to [0-9]
         
-        state = np.array([obs_index_player, obs_index_dealer])
+        state = np.array([state_index_player, state_index_dealer])
+        
+        #determine whether either dealer of player already have blackjack 
+        #initialize rewards first 
+        reward = 0
+        
+        if self.player_value == 21 and self.dealer_value != 21: 
+            reward = env.reward_options["win"]
+            self.done = True 
+        # elif self.dealer_value == 21 and self.player_value != 21: 
+        #     reward = env.reward_options["lose"]
+        #     self.done = True
+        elif self.dealer_value == 21 and self.player_value == 21: 
+            reward = env.reward_options["tie"]
+            self.done = True 
         
         #print('player_value: ' + str(self.player_value))
         #print('upcard value: ' + str(self.upcard.value))
         
-        return state
+        return state, reward, self.done, {}
      
     #render the game. It shows player balance, player hand, player value
     #dealer's upcard and whether the episode is done
@@ -344,15 +373,19 @@ class BlackjackEnv(gym.Env):
         player_hand_ranks = []
         for card in self.player_hand: 
             player_hand_ranks.append(card.rank)
+            
+        dealer_hand_ranks = []
+        for card in self.dealer_hand: 
+            dealer_hand_ranks.append(card.rank)
         
         #upcard = dealer_eval([self.upcard])
         
         print('PLayer capital: ' + str(self.capital))
         print('Player hand: ' + str(player_hand_ranks))
+        print('Dealer hand: ' + str(dealer_hand_ranks))
         print('Dealer upcard: ' + str(self.upcard.rank))
         print('Done?: ' + str(self.done))
-             
-        
+        print('----------------')
 
 
 ##############################################################################
@@ -373,32 +406,6 @@ def init_mc(env):
     #initialize returns array for all the state-action pairs. These are all set
     #to 0 as well 
     returns = Q_table 
-    
-    #initialize learning rate. Defines the weight of new state-action values
-    #int the Q_table after each episode. Small learning_rate denotes exploratory 
-    #behaviour 
-    learning_rate = 0.001
-    
-    #initialize the probability learning rate epsilon. This rate is analogous to
-    #the learning rate, but for the probability table. It determines the weight
-    #for adjusting the probability that a certain action is to be taken. A high
-    #epsilon yields a smaller increase/decrease for the probability corresponding
-    #to the state-action pair
-    epsilon = 1
-    
-    #○epsilon_decay denotes by which factor epsilon is decayed. With decreasing
-    #epsilon over the episodes, the agent starts to exploit more than explore.
-    epsilon_decay = 0.99999
-    
-    #epsilon cannot go below a certain bound in order to still guarantee some
-    #exploration at any time 
-    epsilon_min = 0.9
-    
-    #the discount rate determines in what way the actions prior to a received
-    #reward (thus in the same episode) contribute to this reward being received.
-    #If the discount rate is 1, no attention is given to the previous actions, 
-    #except for the last action which invoked the reward
-    discount_rate = 0.8
     
     return policy_map, Q_table, returns
   
@@ -421,18 +428,18 @@ epsilon = 1
     
 #○epsilon_decay denotes by which factor epsilon is decayed. With decreasing
 #epsilon over the episodes, the agent starts to exploit more than explore.
-epsilon_decay = 0.99999
+epsilon_decay = 1
+
     
 #epsilon cannot go below a certain bound in order to still guarantee some
 #exploration at any time 
-epsilon_min = 0.9
+epsilon_min = 0.95
     
 #the discount rate determines in what way the actions prior to a received
 #reward (thus in the same episode) contribute to this reward being received.
 #If the discount rate is 1, no attention is given to the previous actions, 
 #except for the last action which invoked the reward
-discount_rate = 0.8  
-
+discount_rate = 0.71
   
 
 ###############################################################################
@@ -441,10 +448,12 @@ discount_rate = 0.8
 def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate): 
     #generate episode using the given policy
     episode_results = []
-    state = env.reset() 
+    episode_reward = 0
+    state, reward, env.done, info = env.reset()
+    episode_reward += reward 
     
     while env.done == False: 
-        print('state: ' + str(state))
+        #print('state: ' + str(state))
         #determine probabilities to take action 0 (hit) or 1 (stand)
         actions_probs = policy_map[state[0]][state[1]]
         #determine action with highest probability 
@@ -462,6 +471,8 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         #print('action: ' + str(action))
         #take a step in the environment with the determined action 
         next_state, reward, env.done, info = env.step(action)
+        visited_state[state[0]][state[1]] += 1
+        episode_reward += reward 
         
         #print('reward: ' + str(reward))
         #print('new state: ' + str(next_state))
@@ -472,50 +483,111 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         
         #start from the next state 
         state = next_state 
-    
+
+
     #update the Q_table and policy map
-    discount_counter = 0
+    
+    episode_index = 0
     for episode in episode_results: 
         state = episode[0]
         action = episode[1]
-        reward = episode[2]*(discount_rate)**discount_counter
+        
+        #update reward according to the discount rate if there were multiple
+        #actions taken in this episode 
+        #total discounted reward for this episode after this state
+        tot_reward_episode = 0
+        #exponent of discount rate 
+        discount_counter = 0
+        # TODO: double check this 
+        for index_in_episode in range(episode_index, len(episode_results)): 
+            reward = episode_results[index_in_episode][2]
+            tot_reward_episode += (discount_rate**discount_counter)*reward
+            discount_counter += 1    
+        
         #update Q-value of state-action pair via learning rate 
-        Q_table[state[0]][state[1]][action] += learning_rate*reward
+        current_Q = Q_table[state[0]][state[1]][action]
+        #Q_table[state[0]][state[1]][action] = current_Q + learning_rate*tot_reward_episode
+        Q_table[state[0]][state[1]][action] = current_Q + learning_rate*(tot_reward_episode - current_Q)
+        
         #update policy map (probabilities) via discounted epsilon 
         epsilon = max(epsilon*epsilon_decay, epsilon_min)
         policy_map[state[0]][state[1]][action] += (1-epsilon)
+        
+        policy_map[state[0]][state[1]][action] = min(1, policy_map[state[0]][state[1]][action])
+        
+        
         if action == 0: 
             policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][action]
         else: 
-            policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][action]
+            policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][action]
         
-        discount_counter += 1
-    
-    return Q_table, policy_map, epsilon
+        episode_index += 1
+    return Q_table, policy_map, epsilon, episode_reward
         
     
 
 ###############################################################################
-# test the gym environment
+# Train the agent 
 ###############################################################################
 env = BlackjackEnv()
 
 total_reward = 0
-NUM_EPISODES = 10000
+NUM_EPISODES = 10000000
+
+visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
 
 policy_map, Q_table, returns = init_mc(env)
 
 for i in range(NUM_EPISODES):
-    print('--------------')
-    print('Episode ' + str(i))
+    #print('--------------')
+    #print('Episode ' + str(i))
+    Q_table, policy_map, epsilon, reward = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate)
+    total_reward += reward
     
-    Q_table, policy_map, epsilon = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate)
-    
+avg_reward = total_reward/NUM_EPISODES
+print('Average reward: ' + str(avg_reward))
 
 ###############################################################################
-# Plot results 
+# Extract optimal policy + Q-values 
 ###############################################################################
 
+#for the policy, we want a table with rows: player_value, columns: dealer's upcard
+#and values: action to take (0 or 1)
+
+# 1) make empty table with all the states in which the player can be without
+#already being bust (hand value from 4-21). Initialize with zeros, meaning a hit action
+optimal_policy = np.zeros((18,10), dtype=int) 
+
+# 2) for al the state-action pairs where the 1 action (hold) has a higher probability
+#change the values in optimal_policy to 1 
+for i in range(optimal_policy.shape[0]): #for all player hand values which aren't bust 
+    for j in range(optimal_policy.shape[1]): #for all dealer upcards [2-11]
+        if np.argmax(policy_map[i][j]) == 1 : 
+            optimal_policy[i][j] = 1
+
+best_policy_binary = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
+
+for k in range(best_policy_binary.shape[0]):
+    for l in range(best_policy_binary.shape[1]): 
+       best_policy_binary[k][l] = (np.argmax(Q_table[k][l]))
+          
+
+###############################################################################
+# Test the optimal policy 
+###############################################################################
+
+test_reward = 0
+
+for i in range(NUM_EPISODES): 
+    state, reward, env.done, info = env.reset()
+    test_reward += reward 
+    while env.done == False: 
+        action = best_policy_binary[state[0]][state[1]]
+        
+        next_state, reward, env.done, info = env.step(action)
+        
+        test_reward += reward 
+    
 
 
 
