@@ -387,7 +387,7 @@ class BlackjackEnv(gym.Env):
 
 
 ##############################################################################
-# Initialize first-visit MC algorithm 
+# Initialize Q-value table and policy map 
 ##############################################################################
 
 def init_mc(env): 
@@ -431,7 +431,7 @@ epsilon_decay = 0.99999
     
 #epsilon cannot go below a certain bound in order to still guarantee some
 #exploration at any time 
-epsilon_min = 0.95
+epsilon_min = 0.97
     
 #the discount rate determines in what way the actions prior to a received
 #reward (thus in the same episode) contribute to this reward being received.
@@ -507,18 +507,6 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         #Q_table[state[0]][state[1]][action] = current_Q + learning_rate*tot_reward_episode
         Q_table[state[0]][state[1]][action] = current_Q + learning_rate*(tot_reward_episode - current_Q)
         
-        # #update policy map (probabilities) via discounted epsilon 
-        # epsilon = max(epsilon*epsilon_decay, epsilon_min)
-        # policy_map[state[0]][state[1]][action] += (1-epsilon)
-        
-        # policy_map[state[0]][state[1]][action] = min(1, policy_map[state[0]][state[1]][action])
-        
-        
-        # if action == 0: 
-        #     policy_map[state[0]][state[1]][1] = 1 - policy_map[state[0]][state[1]][action]
-        # else: 
-        #     policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][action]
-        
         episode_index += 1
       
     # update the policy map (probabilities of certain action being taken)    
@@ -546,7 +534,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
 env = BlackjackEnv()
 
 total_reward = 0
-NUM_EPISODES = 500000
+NUM_EPISODES = 1000000
 
 visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
 
