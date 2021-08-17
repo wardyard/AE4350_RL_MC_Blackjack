@@ -15,6 +15,7 @@ from gym import error, spaces, utils
 from gym.utils import seeding
 import statistics
 import time 
+from collections import Counter
 
 ##############################################################################
 # Set up cards and deck functionalities
@@ -533,7 +534,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
 
 env = BlackjackEnv()
 
-NUM_EPISODES = 1000000
+NUM_EPISODES = 1000
 
 ###############################################################################
 # Define the training loop function
@@ -583,7 +584,7 @@ def train():
     stop = time.time() 
     training_time = stop-start 
        
-    return optimal_policy, avg_reward, training_time
+    return optimal_policy, avg_reward, training_time, visited_state
 
 
 ###############################################################################
@@ -615,25 +616,33 @@ def test(best_policy):
 ###############################################################################
 # Do a number of test runs 
 ###############################################################################
-AMOUNT_TEST_RUNS = 50 
+AMOUNT_TEST_RUNS = 3 
 
 avg_training_rewards = []
 avg_testing_rewards = []
 
 optimal_policies = []
 
+action_counter_policies = np.zeros((18,10), dtype=int)
+
+visited_states = []
+
 training_times = []
 
 
-for run in AMOUNT_TEST_RUNS: 
-    optimal_policy, avg_training_reward, training_time = train()
+for run in range(AMOUNT_TEST_RUNS): 
+    optimal_policy, avg_training_reward, training_time, visited_state = train()
 
     # Store optimal policy and training reward + training time
     optimal_policies.append(optimal_policy)
     
+    action_counter_policies += optimal_policy
+    
     avg_training_rewards.append(avg_training_reward)
     
     training_times.append(training_time)
+    
+    visited_states.append(visited_state)
  
     avg_test_reward = test(optimal_policy)
     
@@ -641,12 +650,24 @@ for run in AMOUNT_TEST_RUNS:
     avg_testing_rewards.append(avg_test_reward)
  
 # Results 
-avg_training_reward = np.avg(avg_training_rewards)
+avg_training_reward = statistics.mean(avg_training_rewards)
 std_training_reward = statistics.stdev(avg_training_rewards, True)
 
-avg_testing_reward = np.avg(avg_testing_rewards)
+avg_testing_reward = statistics.mean(avg_testing_rewards)
 std_testing_reward = statistics.stdev(avg_testing_rewards, True)
 
-avg_training_time = np.avg(training_times)
+avg_training_time = statistics.mean(training_times)
+
+avg_states_visited = np.mean(np.array(visited_states), axis = 0)
+
+# determine the 'average' optimal policy by choosing the action most frequently
+# preferred over all the best policies from the individual training loops
+avg_optimal_policy = np.zeros((18,10), dtype=int)
+
+for i in range(action_counter_policies.shape[0]): 
+    for j in range(action_counter_policies.shape[1]): 
+        action_sum = action_counter_policies[i][j]
+        if action_sum > (AMOUNT_TEST_RUNS/2): 
+            avg_optimal_policy[i][j] = 1
 
     
