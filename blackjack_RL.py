@@ -13,6 +13,8 @@ import enum
 import gym 
 from gym import error, spaces, utils 
 from gym.utils import seeding
+import statistics
+import time 
 
 ##############################################################################
 # Set up cards and deck functionalities
@@ -244,7 +246,7 @@ class BlackjackEnv(gym.Env):
         #[4-30]
         
         ####### TODO: why is 4 not an option for the player's hand value, and why is 1 not an option for the dealer's hand value
-        self.observation_space = spaces.Tuple((spaces.Discrete(27), spaces.Discrete(10)))
+        self.observation_space = spaces.Tuple((spaces.Discrete(28), spaces.Discrete(10)))
         
         #initialze the 'done' return from 'step' function to be false 
         self.done = False
@@ -350,14 +352,14 @@ class BlackjackEnv(gym.Env):
         #initialize rewards first 
         reward = 0
         
-        if self.player_value == 21 and self.dealer_value != 21: 
+        if self.player_value == 21 and (state_index_dealer+2) < 10: #dealer has no 10 of Ace as upcard
             reward = env.reward_options["win"]
             self.done = True 
         # elif self.dealer_value == 21 and self.player_value != 21: 
         #     reward = env.reward_options["lose"]
         #     self.done = True
         elif self.dealer_value == 21 and self.player_value == 21: 
-            reward = env.reward_options["tie"]
+            #reward = env.reward_options["tie"]
             self.done = True 
         
         #print('player_value: ' + str(self.player_value))
@@ -403,47 +405,45 @@ def init_mc(env):
     
     #initialize returns array for all the state-action pairs. These are all set
     #to 0 as well 
-    returns = Q_table 
+    returns = Q_table
+      
+    #initialize learning rate. Defines the weight of new state-action values
+    #int the Q_table after each episode. Small learning_rate denotes exploratory 
+    #behaviour 
+    learning_rate = 0.001
+        
+    #initialize the probability learning rate epsilon. This rate is analogous to
+    #the learning rate, but for the probability table. It determines the weight
+    #for adjusting the probability that a certain action is to be taken. A high
+    #epsilon yields a smaller increase/decrease for the probability corresponding
+    #to the state-action pair
+    epsilon = 1
+        
+    #○epsilon_decay denotes by which factor epsilon is decayed. With decreasing
+    #epsilon over the episodes, the agent starts to exploit more than explore.
+    epsilon_decay = 0.99999
     
-    return policy_map, Q_table, returns
+        
+    #epsilon cannot go below a certain bound in order to still guarantee some
+    #exploration at any time 
+    epsilon_min = 0.97
+        
+    #the discount rate determines in what way the actions prior to a received
+    #reward (thus in the same episode) contribute to this reward being received.
+    #If the discount rate is 1, no attention is given to the previous actions, 
+    #except for the last action which invoked the reward
+    discount_rate = 0.8
+    
+    return policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate
   
 
-##############################################################################
-# Initialize learning parameters 
-##############################################################################
-  
-#initialize learning rate. Defines the weight of new state-action values
-#int the Q_table after each episode. Small learning_rate denotes exploratory 
-#behaviour 
-learning_rate = 0.001
-    
-#initialize the probability learning rate epsilon. This rate is analogous to
-#the learning rate, but for the probability table. It determines the weight
-#for adjusting the probability that a certain action is to be taken. A high
-#epsilon yields a smaller increase/decrease for the probability corresponding
-#to the state-action pair
-epsilon = 1
-    
-#○epsilon_decay denotes by which factor epsilon is decayed. With decreasing
-#epsilon over the episodes, the agent starts to exploit more than explore.
-epsilon_decay = 0.99999
 
-    
-#epsilon cannot go below a certain bound in order to still guarantee some
-#exploration at any time 
-epsilon_min = 0.97
-    
-#the discount rate determines in what way the actions prior to a received
-#reward (thus in the same episode) contribute to this reward being received.
-#If the discount rate is 1, no attention is given to the previous actions, 
-#except for the last action which invoked the reward
-discount_rate = 0.8
   
 
 ###############################################################################
 # Construct main loop for first visit MC
 ###############################################################################
-def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate): 
+def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate, visited_state): 
     #generate episode using the given policy
     episode_results = []
     episode_reward = 0
@@ -510,12 +510,11 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         episode_index += 1
       
     # update the policy map (probabilities of certain action being taken)    
-      
+    epsilon = max(epsilon*epsilon_decay, epsilon_min) 
     for state, action, reward in episode_results: 
         Q_values = Q_table[state[0]][state[1]]
         best_action_updated = np.argmax(Q_values)
         
-        epsilon = max(epsilon*epsilon_decay, epsilon_min)
         policy_map[state[0]][state[1]][best_action_updated] += (1-epsilon)
         policy_map[state[0]][state[1]][best_action_updated] = min(1, policy_map[state[0]][state[1]][best_action_updated])
         
@@ -524,61 +523,76 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         else: 
             policy_map[state[0]][state[1]][0] = 1 - policy_map[state[0]][state[1]][best_action_updated]
             
-    return Q_table, policy_map, epsilon, episode_reward
+    return Q_table, policy_map, epsilon, episode_reward, visited_state
         
-    
+
 
 ###############################################################################
-# Train the agent 
+# Define the environment and amount of episodes
 ###############################################################################
+
 env = BlackjackEnv()
 
-total_reward = 0
 NUM_EPISODES = 1000000
 
-visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
+###############################################################################
+# Define the training loop function
+###############################################################################
 
-policy_map, Q_table, returns = init_mc(env)
-
-for i in range(NUM_EPISODES):
-    #print('--------------')
-    #print('Episode ' + str(i))
-    Q_table, policy_map, epsilon, reward = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate)
-    total_reward += reward
+def train(): 
+    start = time.time() 
+    total_reward = 0
     
-avg_reward = total_reward/NUM_EPISODES
-print('Average reward: ' + str(avg_reward))
+    visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
+    
+    policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate = init_mc(env)
+    
+    for i in range(NUM_EPISODES):
+        #print('--------------')
+        #print('Episode ' + str(i))
+        Q_table, policy_map, epsilon, reward, visited_state = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate, visited_state)
+        total_reward += reward
+        
+    avg_reward = total_reward/NUM_EPISODES
+    print('Average reward: ' + str(avg_reward))
+    
+    ###############################################################################
+    # Extract optimal policy + Q-values 
+    ###############################################################################
+    
+    #for the policy, we want a table with rows: player_value, columns: dealer's upcard
+    #and values: action to take (0 or 1)
+    
+    # 1) make empty table with all the states in which the player can be without
+    #already being bust (hand value from 4-21). Initialize with zeros, meaning a hit action
+    optimal_policy = np.zeros((18,10), dtype=int) 
+    
+    # 2) for al the state-action pairs where the 1 action (hold) has a higher probability
+    #change the values in optimal_policy to 1 
+    for i in range(optimal_policy.shape[0]): #for all player hand values which aren't bust 
+        for j in range(optimal_policy.shape[1]): #for all dealer upcards [2-11]
+            if np.argmax(policy_map[i][j]) == 1 : 
+                optimal_policy[i][j] = 1
+    
+    best_policy_binary = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
+    
+    for k in range(best_policy_binary.shape[0]):
+        for l in range(best_policy_binary.shape[1]): 
+           best_policy_binary[k][l] = (np.argmax(Q_table[k][l]))
+    
+    stop = time.time() 
+    training_time = stop-start 
+       
+    return optimal_policy, avg_reward, training_time
+
 
 ###############################################################################
-# Extract optimal policy + Q-values 
+# Define function for testing optimal policy
 ###############################################################################
-
-#for the policy, we want a table with rows: player_value, columns: dealer's upcard
-#and values: action to take (0 or 1)
-
-# 1) make empty table with all the states in which the player can be without
-#already being bust (hand value from 4-21). Initialize with zeros, meaning a hit action
-optimal_policy = np.zeros((18,10), dtype=int) 
-
-# 2) for al the state-action pairs where the 1 action (hold) has a higher probability
-#change the values in optimal_policy to 1 
-for i in range(optimal_policy.shape[0]): #for all player hand values which aren't bust 
-    for j in range(optimal_policy.shape[1]): #for all dealer upcards [2-11]
-        if np.argmax(policy_map[i][j]) == 1 : 
-            optimal_policy[i][j] = 1
-
-best_policy_binary = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
-
-for k in range(best_policy_binary.shape[0]):
-    for l in range(best_policy_binary.shape[1]): 
-       best_policy_binary[k][l] = (np.argmax(Q_table[k][l]))
-          
-
-###############################################################################
-# Test the optimal policy 
-###############################################################################
-def test(): 
+def test(best_policy): 
     test_reward = 0
+    
+    best_policy_binary = best_policy
     
     for i in range(NUM_EPISODES): 
         state, reward, env.done, info = env.reset()
@@ -590,7 +604,49 @@ def test():
             
             test_reward += reward 
             state = next_state
-            
-    print('Average test reward: ' + str(test_reward/NUM_EPISODES))
+      
+    avg_test_reward = test_reward/NUM_EPISODES
+        
+    print('Average test reward: ' + str(avg_test_reward))
+
+    return avg_test_reward
 
 
+###############################################################################
+# Do a number of test runs 
+###############################################################################
+AMOUNT_TEST_RUNS = 50 
+
+avg_training_rewards = []
+avg_testing_rewards = []
+
+optimal_policies = []
+
+training_times = []
+
+
+for run in AMOUNT_TEST_RUNS: 
+    optimal_policy, avg_training_reward, training_time = train()
+
+    # Store optimal policy and training reward + training time
+    optimal_policies.append(optimal_policy)
+    
+    avg_training_rewards.append(avg_training_reward)
+    
+    training_times.append(training_time)
+ 
+    avg_test_reward = test(optimal_policy)
+    
+    # Store average test reward
+    avg_testing_rewards.append(avg_test_reward)
+ 
+# Results 
+avg_training_reward = np.avg(avg_training_rewards)
+std_training_reward = statistics.stdev(avg_training_rewards, True)
+
+avg_testing_reward = np.avg(avg_testing_rewards)
+std_testing_reward = statistics.stdev(avg_testing_rewards, True)
+
+avg_training_time = np.avg(training_times)
+
+    
