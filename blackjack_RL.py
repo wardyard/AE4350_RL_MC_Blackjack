@@ -16,6 +16,8 @@ from gym.utils import seeding
 import statistics
 import time 
 from collections import Counter
+import seaborn as sns
+import matplotlib.patches as mpatches
 
 ##############################################################################
 # Set up cards and deck functionalities
@@ -534,7 +536,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
 
 env = BlackjackEnv()
 
-NUM_EPISODES = 1000
+NUM_EPISODES = 10000
 
 ###############################################################################
 # Define the training loop function
@@ -544,6 +546,9 @@ def train():
     start = time.time() 
     total_reward = 0
     
+    reward_per_episode = []
+    avg_reward_per_episode = []
+    
     visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
     
     policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate = init_mc(env)
@@ -552,6 +557,8 @@ def train():
         #print('--------------')
         #print('Episode ' + str(i))
         Q_table, policy_map, epsilon, reward, visited_state = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate, visited_state)
+        reward_per_episode.append(reward)
+        avg_reward_per_episode.append(np.mean(reward_per_episode))
         total_reward += reward
         
     avg_reward = total_reward/NUM_EPISODES
@@ -584,7 +591,7 @@ def train():
     stop = time.time() 
     training_time = stop-start 
        
-    return optimal_policy, avg_reward, training_time, visited_state
+    return optimal_policy, avg_reward, training_time, visited_state, Q_table, avg_reward_per_episode
 
 
 ###############################################################################
@@ -616,10 +623,12 @@ def test(best_policy):
 ###############################################################################
 # Do a number of test runs 
 ###############################################################################
-AMOUNT_TEST_RUNS = 3 
+AMOUNT_TEST_RUNS = 2
 
 avg_training_rewards = []
 avg_testing_rewards = []
+
+Q_tables = []
 
 optimal_policies = []
 
@@ -631,7 +640,7 @@ training_times = []
 
 
 for run in range(AMOUNT_TEST_RUNS): 
-    optimal_policy, avg_training_reward, training_time, visited_state = train()
+    optimal_policy, avg_training_reward, training_time, visited_state, Q_table, avg_reward_per_episode = train()
 
     # Store optimal policy and training reward + training time
     optimal_policies.append(optimal_policy)
@@ -639,6 +648,8 @@ for run in range(AMOUNT_TEST_RUNS):
     action_counter_policies += optimal_policy
     
     avg_training_rewards.append(avg_training_reward)
+    
+    Q_tables.append(Q_table)
     
     training_times.append(training_time)
     
@@ -660,14 +671,81 @@ avg_training_time = statistics.mean(training_times)
 
 avg_states_visited = np.mean(np.array(visited_states), axis = 0)
 
+avg_Q_table = np.mean(np.array(Q_tables), axis = 0)
+
 # determine the 'average' optimal policy by choosing the action most frequently
 # preferred over all the best policies from the individual training loops
 avg_optimal_policy = np.zeros((18,10), dtype=int)
 
+
 for i in range(action_counter_policies.shape[0]): 
     for j in range(action_counter_policies.shape[1]): 
         action_sum = action_counter_policies[i][j]
-        if action_sum > (AMOUNT_TEST_RUNS/2): 
+        if action_sum > (AMOUNT_TEST_RUNS/2) or action_sum == 0: 
             avg_optimal_policy[i][j] = 1
 
-    
+
+print("Average training reward: " + str(avg_training_reward))
+print("Training reward standard deviation: " +str(std_training_reward))
+print("Average testing reward: " + str(avg_testing_reward))
+print("Testing reward standard deviation: " + str(std_testing_reward)) 
+print("Average training time: " + str(avg_training_time))
+
+
+
+# convert optimal policy to a readable and printable dataframe
+
+optimal_policy_df = pd.DataFrame(avg_optimal_policy, index = range(4,22), columns = range(2,12))
+
+
+fig1 = plt.figure()
+ax1 = sns.heatmap(optimal_policy_df, annot=True)
+ax1.xaxis.tick_top()
+fig1.axes[1].set_visible(False)
+plt.xlabel("Dealer's upcard")
+plt.ylabel("Player hand value")
+plt.title("Average optimal policy for " + str(AMOUNT_TEST_RUNS) + ' runs of ' + str(NUM_EPISODES) + ' episodes')
+black_patch = mpatches.Patch(facecolor='black',edgecolor='black', label='Hit')
+white_patch = mpatches.Patch(facecolor='bisque',edgecolor='black', label='Stand')
+plt.legend(handles=[black_patch, white_patch], bbox_to_anchor=(1,1), loc="upper left")
+
+fig1 = plt.figure()
+ax1 = sns.heatmap(optimal_policy, annot=True)
+ax1.xaxis.tick_top()
+fig1.axes[1].set_visible(False)
+plt.xlabel("Dealer's upcard")
+plt.ylabel("Player hand value")
+plt.title("Optimal policy for a single run of  " + str(NUM_EPISODES) + ' episodes')
+black_patch = mpatches.Patch(facecolor='black',edgecolor='black', label='Hit')
+white_patch = mpatches.Patch(facecolor='bisque',edgecolor='black', label='Stand')
+plt.legend(handles=[black_patch, white_patch], bbox_to_anchor=(1,1), loc="upper left")
+
+fig2 = plt.figure()
+plt.plot(range(NUM_EPISODES), avg_reward_per_episode, color = 'red')
+plt.xlabel('Episode')
+plt.ylabel('Avg reward per episode [$]')
+plt.title('Evolution of reward per episode for a single training run of ' + str(NUM_EPISODES) + ' episodes')
+
+fig4 = plt.figure() 
+ax = fig4.gca()
+plt.bar(range(AMOUNT_TEST_RUNS), avg_training_rewards, color = 'red')
+ax.set_xticks(range(AMOUNT_TEST_RUNS))
+ax.set_xticklabels(range(AMOUNT_TEST_RUNS))
+plt.xlabel('Run')
+plt.ylabel('Average reward per training run of ' + str(NUM_EPISODES) + ' episodes [$]')
+plt.title('Average reward per training run for ' + str(AMOUNT_TEST_RUNS) + ' runs of ' + str(NUM_EPISODES) + ' episodes')
+
+
+fig5 = plt.figure() 
+ax = fig5.gca()
+plt.bar(range(AMOUNT_TEST_RUNS), avg_testing_rewards, color = 'green')
+ax.set_xticks(range(AMOUNT_TEST_RUNS))
+ax.set_xticklabels(range(AMOUNT_TEST_RUNS))
+plt.xlabel('Run')
+plt.ylabel('Average reward per testing run of ' + str(NUM_EPISODES) + ' episodes [$]')
+plt.title('Average reward per testing run for ' + str(AMOUNT_TEST_RUNS) + ' runs of ' + str(NUM_EPISODES) + ' episodes')
+
+plt.show()
+
+
+
