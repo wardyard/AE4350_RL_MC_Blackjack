@@ -21,6 +21,7 @@ import matplotlib.patches as mpatches
 
 ##############################################################################
 # Set up cards and deck functionalities
+# 
 ##############################################################################
 
 #ranks are the values associated to specific cards. In blackjack, everything
@@ -165,8 +166,6 @@ def player_eval(player_hand):
             #using_ace_eleven: value of dealer's hand when using a value of 11
             #for aces
             using_ace_eleven = using_ace_one + 10 
-            # if using_ace_eleven <= 4: 
-            #     print('ace eleven: ' + str(using_ace_eleven))
             
             if using_ace_eleven > 21: 
                 return using_ace_one   #dealer would be bust if using 11 for an ace value
@@ -181,18 +180,9 @@ def player_eval(player_hand):
                 
             num_aces += 1 
         
-        # if using_ace_one <= 4: 
-        #     print('ace one: ' + str(using_ace_one))
-        #     print(player_hand)
         return using_ace_one
     
     else: 
-        # if using_ace_one <= 4: 
-        #     print('ace one: ' + str(using_ace_one))
-        #     hand_str = ''
-        #     for card in player_hand: 
-        #         hand_str = hand_str + card.__str__()
-        #     print(hand_str)
         return using_ace_one
 
 
@@ -299,11 +289,7 @@ class BlackjackEnv(gym.Env):
                         reward = self.reward_options["lose"]
                     elif self.player_value == self.dealer_value: 
                         reward = self.reward_options["tie"]
-        '''
-        added woensdag om optimal_policy van altijd hitten te fixen
-        '''
-        
-        #print('Reward: ' + str(reward))
+
         self.capital += reward
         
         #determine the next state to return 
@@ -358,15 +344,10 @@ class BlackjackEnv(gym.Env):
         if self.player_value == 21 and (state_index_dealer+2) < 10: #dealer has no 10 of Ace as upcard
             reward = env.reward_options["win"]
             self.done = True 
-        # elif self.dealer_value == 21 and self.player_value != 21: 
-        #     reward = env.reward_options["lose"]
-        #     self.done = True
+
         elif self.dealer_value == 21 and self.player_value == 21: 
             #reward = env.reward_options["tie"]
             self.done = True 
-        
-        #print('player_value: ' + str(self.player_value))
-        #print('upcard value: ' + str(self.upcard.value))
         
         return state, reward, self.done, {}
      
@@ -381,7 +362,6 @@ class BlackjackEnv(gym.Env):
         for card in self.dealer_hand: 
             dealer_hand_ranks.append(card.rank)
         
-        #upcard = dealer_eval([self.upcard])
         
         print('PLayer capital: ' + str(self.capital))
         print('Player hand: ' + str(player_hand_ranks))
@@ -413,7 +393,7 @@ def init_mc(env):
     #initialize learning rate. Defines the weight of new state-action values
     #int the Q_table after each episode. Small learning_rate denotes exploratory 
     #behaviour 
-    learning_rate = 0.001
+    learning_rate = 0.01
         
     #initialize the probability learning rate epsilon. This rate is analogous to
     #the learning rate, but for the probability table. It determines the weight
@@ -429,7 +409,7 @@ def init_mc(env):
         
     #epsilon cannot go below a certain bound in order to still guarantee some
     #exploration at any time 
-    epsilon_min = 0.97
+    epsilon_min = 0.85
         
     #the discount rate determines in what way the actions prior to a received
     #reward (thus in the same episode) contribute to this reward being received.
@@ -469,15 +449,12 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
                 action = 0
             else: 
                 action = 1
-        #print('action: ' + str(action))
+                
         #take a step in the environment with the determined action 
         next_state, reward, env.done, info = env.step(action)
         visited_state[state[0]][state[1]] += 1
         episode_reward += reward 
-        
-        #print('reward: ' + str(reward))
-        #print('new state: ' + str(next_state))
-        
+
         #append the state - action pair and corresponding reward to results of
         #this episode 
         episode_results.append([state, action, reward])
@@ -536,7 +513,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
 
 env = BlackjackEnv()
 
-NUM_EPISODES = 10000
+NUM_EPISODES = 1000000
 
 ###############################################################################
 # Define the training loop function
@@ -547,19 +524,17 @@ def train():
     total_reward = 0
     
     reward_per_episode = []
-    avg_reward_per_episode = []
+    total_rewards = []
     
     visited_state = np.zeros([env.observation_space[0].n, env.observation_space[1].n], dtype=int)
     
     policy_map, Q_table, returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate = init_mc(env)
     
     for i in range(NUM_EPISODES):
-        #print('--------------')
-        #print('Episode ' + str(i))
         Q_table, policy_map, epsilon, reward, visited_state = loop_mc(env, policy_map, Q_table,returns, learning_rate, epsilon, epsilon_decay, epsilon_min, discount_rate, visited_state)
         reward_per_episode.append(reward)
-        avg_reward_per_episode.append(np.mean(reward_per_episode))
         total_reward += reward
+        total_rewards.append(total_reward)
         
     avg_reward = total_reward/NUM_EPISODES
     print('Average reward: ' + str(avg_reward))
@@ -590,8 +565,17 @@ def train():
     
     stop = time.time() 
     training_time = stop-start 
+    
+    # undo the misleading zeros in the bottom row of the optimal policy for a single run. 
+    # These values are set to zero because the agent never reaches this state. Since 0 
+    # means hit, we change the values of the unvisited states (when player has 21 and upcard is low)
+    # to 1
+    for i in range(optimal_policy.shape[0]): 
+        for j in range(optimal_policy.shape[1]): 
+            if visited_state[i][j] == 0: 
+                optimal_policy[i][j] = 1
        
-    return optimal_policy, avg_reward, training_time, visited_state, Q_table, avg_reward_per_episode
+    return optimal_policy, avg_reward, training_time, visited_state, Q_table, total_rewards
 
 
 ###############################################################################
@@ -619,11 +603,10 @@ def test(best_policy):
 
     return avg_test_reward
 
-
 ###############################################################################
 # Do a number of test runs 
 ###############################################################################
-AMOUNT_TEST_RUNS = 2
+AMOUNT_TEST_RUNS = 50
 
 avg_training_rewards = []
 avg_testing_rewards = []
@@ -640,7 +623,8 @@ training_times = []
 
 
 for run in range(AMOUNT_TEST_RUNS): 
-    optimal_policy, avg_training_reward, training_time, visited_state, Q_table, avg_reward_per_episode = train()
+    print('Run: ' + str(run))
+    optimal_policy, avg_training_reward, training_time, visited_state, Q_table, total_rewards = train()
 
     # Store optimal policy and training reward + training time
     optimal_policies.append(optimal_policy)
@@ -673,6 +657,8 @@ avg_states_visited = np.mean(np.array(visited_states), axis = 0)
 
 avg_Q_table = np.mean(np.array(Q_tables), axis = 0)
 
+
+
 # determine the 'average' optimal policy by choosing the action most frequently
 # preferred over all the best policies from the individual training loops
 avg_optimal_policy = np.zeros((18,10), dtype=int)
@@ -681,9 +667,15 @@ avg_optimal_policy = np.zeros((18,10), dtype=int)
 for i in range(action_counter_policies.shape[0]): 
     for j in range(action_counter_policies.shape[1]): 
         action_sum = action_counter_policies[i][j]
-        if action_sum > (AMOUNT_TEST_RUNS/2) or action_sum == 0: 
+        if action_sum > (AMOUNT_TEST_RUNS/2) or avg_states_visited[i][j] == 0   : 
             avg_optimal_policy[i][j] = 1
 
+# Calulate the average reward per episode for each episode so far. This denotes
+# the learning of the agent towards an asymptotical average reward 
+avg_reward_per_episode = []
+for i in range(10001): 
+    avg_reward_per_episode.append(total_rewards[i]/(i+1))
+           
 
 print("Average training reward: " + str(avg_training_reward))
 print("Training reward standard deviation: " +str(std_training_reward))
@@ -692,14 +684,19 @@ print("Testing reward standard deviation: " + str(std_testing_reward))
 print("Average training time: " + str(avg_training_time))
 
 
+#%%
+###############################################################################
+# Plotting 
+###############################################################################
 
-# convert optimal policy to a readable and printable dataframe
+# convert average optimal policy to a readable and printable dataframe
+avg_optimal_policy_df = pd.DataFrame(avg_optimal_policy, index = range(4,22), columns = range(2,12))
 
-optimal_policy_df = pd.DataFrame(avg_optimal_policy, index = range(4,22), columns = range(2,12))
-
+#convert optimal policy of a single training run to a readable and printable dataframe
+optimal_policy_df = pd.DataFrame(optimal_policy, index = range(4,22), columns = range(2,12))
 
 fig1 = plt.figure()
-ax1 = sns.heatmap(optimal_policy_df, annot=True)
+ax1 = sns.heatmap(avg_optimal_policy_df, annot=True)
 ax1.xaxis.tick_top()
 fig1.axes[1].set_visible(False)
 plt.xlabel("Dealer's upcard")
@@ -709,10 +706,10 @@ black_patch = mpatches.Patch(facecolor='black',edgecolor='black', label='Hit')
 white_patch = mpatches.Patch(facecolor='bisque',edgecolor='black', label='Stand')
 plt.legend(handles=[black_patch, white_patch], bbox_to_anchor=(1,1), loc="upper left")
 
-fig1 = plt.figure()
-ax1 = sns.heatmap(optimal_policy, annot=True)
+fig2 = plt.figure()
+ax1 = sns.heatmap(optimal_policy_df, annot=True)
 ax1.xaxis.tick_top()
-fig1.axes[1].set_visible(False)
+fig2.axes[1].set_visible(False)
 plt.xlabel("Dealer's upcard")
 plt.ylabel("Player hand value")
 plt.title("Optimal policy for a single run of  " + str(NUM_EPISODES) + ' episodes')
@@ -720,32 +717,103 @@ black_patch = mpatches.Patch(facecolor='black',edgecolor='black', label='Hit')
 white_patch = mpatches.Patch(facecolor='bisque',edgecolor='black', label='Stand')
 plt.legend(handles=[black_patch, white_patch], bbox_to_anchor=(1,1), loc="upper left")
 
-fig2 = plt.figure()
-plt.plot(range(NUM_EPISODES), avg_reward_per_episode, color = 'red')
+fig3 = plt.figure()
+ax = fig3.gca()
+plt.plot(range(10001), avg_reward_per_episode, color = 'red')
+ax.set_xlim([0,10000])
 plt.xlabel('Episode')
-plt.ylabel('Avg reward per episode [$]')
-plt.title('Evolution of reward per episode for a single training run of ' + str(NUM_EPISODES) + ' episodes')
+plt.ylabel('Average reward per episode [$]')
+plt.title('Evolution of average reward per episode for a single training run of ' + str(NUM_EPISODES) + ' episodes')
 
-fig4 = plt.figure() 
-ax = fig4.gca()
+
+fig5 = plt.figure() 
+ax = fig5.gca()
 plt.bar(range(AMOUNT_TEST_RUNS), avg_training_rewards, color = 'red')
-ax.set_xticks(range(AMOUNT_TEST_RUNS))
-ax.set_xticklabels(range(AMOUNT_TEST_RUNS))
+ax.xaxis.set_ticks(range(0, AMOUNT_TEST_RUNS, 5))
+ax.set_xticklabels(range(0, AMOUNT_TEST_RUNS, 5))
 plt.xlabel('Run')
 plt.ylabel('Average reward per training run of ' + str(NUM_EPISODES) + ' episodes [$]')
 plt.title('Average reward per training run for ' + str(AMOUNT_TEST_RUNS) + ' runs of ' + str(NUM_EPISODES) + ' episodes')
 
 
-fig5 = plt.figure() 
-ax = fig5.gca()
+fig6 = plt.figure() 
+ax = fig6.gca()
 plt.bar(range(AMOUNT_TEST_RUNS), avg_testing_rewards, color = 'green')
-ax.set_xticks(range(AMOUNT_TEST_RUNS))
-ax.set_xticklabels(range(AMOUNT_TEST_RUNS))
+ax.xaxis.set_ticks(range(0, AMOUNT_TEST_RUNS, 5))
+ax.set_xticklabels(range(0, AMOUNT_TEST_RUNS, 5))
 plt.xlabel('Run')
 plt.ylabel('Average reward per testing run of ' + str(NUM_EPISODES) + ' episodes [$]')
 plt.title('Average reward per testing run for ' + str(AMOUNT_TEST_RUNS) + ' runs of ' + str(NUM_EPISODES) + ' episodes')
 
 plt.show()
 
+#%%
 
+def upcard_simulation():
+    counter = 0
+    
+    hand_values = []
+    while counter < 100000: 
+        deckk = Deck(2)
+        deckk.shuffle()
+        dealer_hand = [deckk.deal(), deckk.deal()]
+        player_hand = [deckk.deal(), deckk.deal(), deckk.deal()]
+        upcard = dealer_hand[0]
+        upcard_value = dealer_eval([upcard])
+        if upcard_value >= 7:   
+            hand_value, dealer_handd, deckk = dealer_turn(dealer_hand, deckk)
+            hand_values.append(hand_value)
+            counter += 1
+    bust_percentage = sum(value > 21 for value in hand_values)/len(hand_values) * 100  
+    print('Bust percentage: ' + str(sum(value > 21 for value in hand_values)/len(hand_values) * 100))      
 
+# results sensitivity analysis 
+
+#---alpha = 0..01, epsilon = 0.97
+# Average training reward: -5.597926
+# Training reward standard deviation: 0.131098415765891
+# Average testing reward: -5.193388
+# Testing reward standard deviation: 0.12625655713826542
+# Average training time: 99.74331339836121   
+
+#---alpha = 0.00001, epsilon = 0.97 
+# Average training reward: -9.801872
+# Training reward standard deviation: 0.10662968541754854
+# Average testing reward: -9.22041
+# Testing reward standard deviation: 0.8511959529427539
+# Average training time: 100.07075120449066
+
+#◘-----epsilon 0.85, alpha = 0.001
+# Average training reward: -6.528608
+# Training reward standard deviation: 0.24767086935392876
+# Average testing reward: -5.410986
+# Testing reward standard deviation: 0.276141261550337
+# Average training time: 106.42655657768249
+
+#-----epsilon 0.6
+# Average training reward: -6.50563
+# Training reward standard deviation: 0.21334167025057707
+# Average testing reward: -5.3518799999999995
+# Testing reward standard deviation: 0.2684751544769628
+# Average training time: 128.81625898361207
+
+#--alpha=0.01, epsilon_min = .085
+# Average training reward: -5.600322
+# Training reward standard deviation: 0.11632161658829489
+# Average testing reward: -5.25932
+# Testing reward standard deviation: 0.190620626547354
+# Average training time: 109.00474240303039
+
+#ALPHA = 0.00001 epsilon = 0.85
+# Average training reward: -9.780872
+# Training reward standard deviation: 0.10716572906351511
+# Average testing reward: -9.3985
+# Testing reward standard deviation: 1.0131979954378039
+# Average training time: 144.65461072921752
+
+#alpha = 0.01, epsilon = 0.6
+# Average training reward: -5.554736
+# Training reward standard deviation: 0.09960589844020978
+# Average testing reward: -5.22082
+# Testing reward standard deviation: 0.16548791065038235
+# Average training time: 108.94393398284912
