@@ -235,7 +235,6 @@ class BlackjackEnv(gym.Env):
         #receiving it at a value of 20. This makes the player's possible states
         #[4-31]
         
-        ####### TODO: why is 4 not an option for the player's hand value, and why is 1 not an option for the dealer's hand value
         self.observation_space = spaces.Tuple((spaces.Discrete(28), spaces.Discrete(10)))
         
         #initialze the 'done' return from 'step' function to be false 
@@ -473,7 +472,7 @@ def loop_mc(env, policy_map, Q_table, returns, learning_rate, epsilon, epsilon_d
         tot_reward_episode = 0
         #exponent of discount rate 
         discount_counter = 0
-        # TODO: double check this 
+        
         for index_in_episode in range(episode_index, len(episode_results)): 
             reward = episode_results[index_in_episode][2]
             tot_reward_episode += (discount_rate**discount_counter)*reward
